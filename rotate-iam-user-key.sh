@@ -27,6 +27,7 @@ function PrintHelp() {
     echo "                    have the rights to list and update credentials for the IAM user. The script expects the .csv format "
     echo "                    used when you download the key from IAM in the AWS console. If this option is not specified, "
     echo "                    existing AWS CLI credentials must be already defined and are used."
+    echo " -p --profile       AWS Credential profile to modify. Optional "
     echo " -s --s3-test-file  Specifies a test text file stored in S3 used for testing. Required. The IAM user must have "
     echo "                    GET access to this file."
     echo " -c --csv-key-file  The name of the output .csv file containing the new access key information. Optional."
@@ -81,6 +82,9 @@ while [ "$1" != "" ]; do
         -a | --aws-key-file) shift
                       AWS_KEY_FILE="$1"
                       ;;
+        -p | --profile)  shift
+                      AWS_PROFILE="$1"
+                      ;;
         -s | --s3-test-file)  shift
                       S3_TEST_FILE="$1"
                       ;;
@@ -131,12 +135,27 @@ function ConfigureAwsCli() {
 
 }
 
+function VerifyAwsProfile() {
+# Verify that the credential profile supplied exists then set it if it does
+    aws configure get aws_access_key_id --profile "$AWS_PROFILE" && RETURN_CODE=$? || RETURN_CODE=$?
+
+    if [ "$RETURN_CODE" -ne 0 ] ; then
+        >&2 echo "Invalid AWS Credential profile supplied."
+        >&2 echo "Verify the name in your credential file."
+        exit 5
+    else
+        export AWS_PROFILE=$AWS_PROFILE
+    fi
+
+}
+
 # ======================================================
 # === MAIN SCRIPT
 # ======================================================
 
 
 ConfigureAwsCli
+VerifyAwsProfile
 
 # Get the keys for this user and check how many there are. If there are two or more, than stop. The max # of keys
 # per IAM user is 2. We need a second key as a temporary key to rotate. So, if there are already two keys, we can't continue.
