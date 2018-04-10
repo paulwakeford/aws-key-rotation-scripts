@@ -27,8 +27,7 @@ function PrintHelp() {
     echo "                    have the rights to list and update credentials for the IAM user. The script expects the .csv format "
     echo "                    used when you download the key from IAM in the AWS console. If this option is not specified, "
     echo "                    existing AWS CLI credentials must be already defined and are used."
-    echo " -s --s3-test-file  Specifies a test text file stored in S3 used for testing. Required. The IAM user must have "
-    echo "                    GET access to this file."
+    echo " -p --profile       AWS Credential profile to modify. Optional "
     echo " -c --csv-key-file  The name of the output .csv file containing the new access key information. Optional."
     echo " -u --user          The IAM user whose key you want to rotate. Required."
     echo " -j --json          A file to send JSON output to. Optional."
@@ -60,8 +59,7 @@ __base="$(basename ${__file} .sh)"
 IAM_USER=
 AWS_KEY_FILE=
 JSON_OUTPUT_FILE=
-S3_TEST_FILE=
-CSV_OUTPUT_FILE=
+#CSV_OUTPUT_FILE=
 RECONFIGURE=
 
 # Check if any arguments were passed. If not, print an error
@@ -81,8 +79,8 @@ while [ "$1" != "" ]; do
         -a | --aws-key-file) shift
                       AWS_KEY_FILE="$1"
                       ;;
-        -s | --s3-test-file)  shift
-                      S3_TEST_FILE="$1"
+        -p | --profile)  shift
+                      AWS_PROFILE="$1"
                       ;;
         -j | --json)  shift
                       JSON_OUTPUT_FILE="$1"
@@ -107,7 +105,7 @@ while [ "$1" != "" ]; do
 done
 
 # Make sure that all the required arguments were passed into the script
-if [[ -z "$IAM_USER" ]] || [[ -z "$S3_TEST_FILE" ]]; then
+if [[ -z "$IAM_USER" ]]; then
     >&2 echo "error: too few arguments"
     PrintHelp
     exit 0
@@ -131,12 +129,28 @@ function ConfigureAwsCli() {
 
 }
 
+function VerifyAwsProfile() {
+# Verify that the credential profile supplied exists then set it if it does
+    aws configure get aws_access_key_id --profile "$AWS_PROFILE" && RETURN_CODE=$? || RETURN_CODE=$?
+
+    if [ "$RETURN_CODE" -ne 0 ] ; then
+        >&2 echo "Invalid AWS Credential profile supplied."
+        >&2 echo "Verify the name in your credential file."
+        exit 5
+    else
+        export AWS_PROFILE=$AWS_PROFILE
+        export AWS_DEFAULT_PROFILE=$AWS_PROFILE
+    fi
+
+}
+
 # ======================================================
 # === MAIN SCRIPT
 # ======================================================
 
 
 ConfigureAwsCli
+VerifyAwsProfile
 
 # Get the keys for this user and check how many there are. If there are two or more, than stop. The max # of keys
 # per IAM user is 2. We need a second key as a temporary key to rotate. So, if there are already two keys, we can't continue.
@@ -166,7 +180,7 @@ rm temp-key
 
 #######
 #
-#  Test access by downloading a pre-designated test file.
+#  Test access by listing access keys for the user.
 #  Note: This will need to be changed to accomodate your specific use case.
 #  Also Note: This test configures a temporary profile for the AWS CLI based on the user whose keys are being rotated.
 #             All AWS calls intended test this user's access should be run using the "--profile" flag so they are
@@ -187,7 +201,7 @@ MAX_COUNT=20
 SUCCESS=false
 while [ "$SUCCESS" = false ] && [ "$COUNT" -lt "$MAX_COUNT" ]; do
     sleep 3
-    aws s3 cp --profile temp-role "$S3_TEST_FILE" ./KeyRotationTest.txt  && RETURN_CODE=$? || RETURN_CODE=$?
+    aws iam list-access-keys --profile temp-role --user-name "$IAM_USER"  && RETURN_CODE=$? || RETURN_CODE=$?
     if [ "$RETURN_CODE" -eq 0 ]; then
         SUCCESS=true
     else
@@ -196,7 +210,7 @@ while [ "$SUCCESS" = false ] && [ "$COUNT" -lt "$MAX_COUNT" ]; do
 done
 
 echo "done pausing.."
-rm KeyRotationTest.txt
+
 
 #
 #  End Key testing
@@ -209,7 +223,7 @@ if [ "$SUCCESS" = true ]; then
 
   # Disable the old key, and re-try the test.
   aws iam update-access-key  --user-name "$IAM_USER" --access-key-id "$EXISTING_KEY_ID" --status Inactive
-  aws s3 cp --profile temp-role "$S3_TEST_FILE" ./KeyRotationTest.txt && RETURN_CODE=$? || RETURN_CODE=$?
+  aws iam list-access-keys --profile temp-role --user-name "$IAM_USER" && RETURN_CODE=$? || RETURN_CODE=$?
 
   if [ "$RETURN_CODE" -eq 0 ]; then SUCCESS=true; else SUCCESS=false; fi
 
@@ -217,8 +231,13 @@ if [ "$SUCCESS" = true ]; then
   if [ "$SUCCESS" = true ]; then
     if [[ ! -z "$RECONFIGURE" ]]; then
       echo "Successfully used new key after inactivating the old key. Reconfiguring AWS CLI with new key..."
-      aws configure set aws_access_key_id "$NEW_AWS_ACCESS_KEY_ID"
-      aws configure set aws_secret_access_key "$NEW_AWS_SECRET_ACCESS_KEY"
+      if [[ ! -z "$AWS_PROFILE" ]]; then
+        aws configure --profile "$AWS_PROFILE" set aws_access_key_id "$NEW_AWS_ACCESS_KEY_ID"
+        aws configure --profile "$AWS_PROFILE" set aws_secret_access_key "$NEW_AWS_SECRET_ACCESS_KEY"
+      else
+        aws configure set aws_access_key_id "$NEW_AWS_ACCESS_KEY_ID"
+        aws configure set aws_secret_access_key "$NEW_AWS_SECRET_ACCESS_KEY"
+      fi
     fi
     echo "Deleting the old key..."
     aws iam delete-access-key --profile temp-role --user-name "$IAM_USER" --access-key-id "$EXISTING_KEY_ID"
@@ -227,7 +246,7 @@ if [ "$SUCCESS" = true ]; then
     aws iam update-access-key  --user-name "$IAM_USER" --access-key-id "$EXISTING_KEY_ID" --status Active
     exit 6
   fi
-  rm KeyRotationTest.txt
+
 else
   >&2 echo "Access test failed for new key. Unable to rotate keys. Rolling back"
   aws iam delete-access-key  --user-name "$IAM_USER"  --access-key-id "$NEW_AWS_ACCESS_KEY_ID"

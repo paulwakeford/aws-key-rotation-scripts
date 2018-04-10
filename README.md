@@ -50,7 +50,7 @@ The rotate-ec2-key.sh script accepts the following command line options:
 4. Re-test.
 5. If nothing breaks, delete the old key.
 
-The script does a fairly simple test in step #4: it merely attempts to get an object from S3, and if it’s successful,
+The script does a fairly simple test in step #4: it merely attempts to list the access keys for the user, and if it’s successful,
 the test passes. The actual tests used in your production environment will likely be more extensive and will vary based
 on your business requirements.
 
@@ -62,8 +62,8 @@ The rotate-iam-key.sh script accepts the following command line options:
                         have the rights to list and update credentials for the IAM user. The script expects the .csv format
                         used when you download the key from IAM in the AWS console. If this option is not specified,
                         existing AWS CLI credentials must be already defined and are used.
-     -s --s3-test-file  Specifies a test text file stored in S3 used for testing. Required. The IAM user must have
-                        GET access to this file.
+		 -p --profile       If using a AWS credential profile, specify the name of the profile here to rotate
+		                    it's credentials.
      -c --csv-key-file  The name of the output .csv file containing the new access key information. Optional.
      -u --user          The IAM user whose key you want to rotate. Required.
      -j --json          A file to send JSON output to. Optional.
