@@ -59,7 +59,7 @@ __base="$(basename ${__file} .sh)"
 IAM_USER=
 AWS_KEY_FILE=
 JSON_OUTPUT_FILE=
-CSV_OUTPUT_FILE=
+#CSV_OUTPUT_FILE=
 RECONFIGURE=
 
 # Check if any arguments were passed. If not, print an error
@@ -139,6 +139,7 @@ function VerifyAwsProfile() {
         exit 5
     else
         export AWS_PROFILE=$AWS_PROFILE
+        export AWS_DEFAULT_PROFILE=$AWS_PROFILE
     fi
 
 }
@@ -230,8 +231,13 @@ if [ "$SUCCESS" = true ]; then
   if [ "$SUCCESS" = true ]; then
     if [[ ! -z "$RECONFIGURE" ]]; then
       echo "Successfully used new key after inactivating the old key. Reconfiguring AWS CLI with new key..."
-      aws configure set aws_access_key_id "$NEW_AWS_ACCESS_KEY_ID"
-      aws configure set aws_secret_access_key "$NEW_AWS_SECRET_ACCESS_KEY"
+      if [[ ! -z "$AWS_PROFILE" ]]; then
+        aws configure --profile "$AWS_PROFILE" set aws_access_key_id "$NEW_AWS_ACCESS_KEY_ID"
+        aws configure --profile "$AWS_PROFILE" set aws_secret_access_key "$NEW_AWS_SECRET_ACCESS_KEY"
+      else
+        aws configure set aws_access_key_id "$NEW_AWS_ACCESS_KEY_ID"
+        aws configure set aws_secret_access_key "$NEW_AWS_SECRET_ACCESS_KEY"
+      fi
     fi
     echo "Deleting the old key..."
     aws iam delete-access-key --profile temp-role --user-name "$IAM_USER" --access-key-id "$EXISTING_KEY_ID"
